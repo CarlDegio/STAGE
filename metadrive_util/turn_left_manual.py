@@ -6,7 +6,7 @@ import h5py
 from metadrive import MetaDriveEnv, SafeMetaDriveEnv
 from metadrive.constants import HELP_MESSAGE
 from metadrive.component.pgblock.first_block import FirstPGBlock
-from util.trajectory import WaypointTrajectory
+from metadrive_util.trajectory import WaypointTrajectory
 
 METADRIVE_DEBUG = False
 
