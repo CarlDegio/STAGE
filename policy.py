@@ -1,7 +1,7 @@
 import torch.nn as nn
 from torch.nn import functional as F
 import torchvision.transforms as transforms
-
+import torch
 from detr.main import build_ACT_model_and_optimizer, build_CNNMLP_model_and_optimizer
 import IPython
 e = IPython.embed
@@ -27,7 +27,9 @@ class ACTPolicy(nn.Module):
             a_hat, is_pad_hat, (mu, logvar) = self.model(qpos, image, env_state, actions, is_pad)
             total_kld, dim_wise_kld, mean_kld = kl_divergence(mu, logvar)
             loss_dict = dict()
-            all_l1 = F.l1_loss(actions, a_hat, reduction='none')
+            steer_throttle_l1 = F.l1_loss(actions['steer_throttle'], a_hat['steer_throttle'], reduction='none')
+            traj_l1 = F.l1_loss(actions['traj'], a_hat['traj'], reduction='none')*0.0
+            all_l1 = torch.cat([steer_throttle_l1, traj_l1], dim=1)
             l1 = (all_l1 * ~is_pad.unsqueeze(-1)).mean()
             loss_dict['l1'] = l1
             loss_dict['kl'] = total_kld[0]

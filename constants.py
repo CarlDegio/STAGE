@@ -9,6 +9,13 @@ SIM_TASK_CONFIGS = {
         'episode_len': 400,
         'camera_names': ['top']
     },
+    
+    'sim_turn_left':{
+        'dataset_dir': DATA_DIR,
+        'num_episodes': 330,
+        'episode_len': 400,
+        'camera_names': ['top_down_view']
+    },
 
     'sim_transfer_cube_human':{
         'dataset_dir': DATA_DIR + '/sim_transfer_cube_human',

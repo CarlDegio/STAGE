@@ -12,10 +12,42 @@ from constants import MASTER_GRIPPER_POSITION_NORMALIZE_FN
 from constants import PUPPET_GRIPPER_POSITION_NORMALIZE_FN
 from constants import PUPPET_GRIPPER_VELOCITY_NORMALIZE_FN
 
+from metadrive import SafeMetaDriveEnv
 import IPython
 e = IPython.embed
 
 BOX_POSE = [None] # to be changed from outside
+
+def get_metadrive_config():
+    config = dict(
+        use_render=True,
+        manual_control=False,
+        traffic_density=0.05,
+        num_scenarios=1,
+        start_seed=5008,
+        random_agent_model=False,
+        random_lane_width=False,
+        random_lane_num=False,  # 3 lanes
+        random_traffic=False,
+
+        on_continuous_line_done=False,
+        out_of_route_done=False,
+        crash_vehicle_done=False,
+        crash_object_done=False,
+
+        vehicle_config=dict(
+            show_lidar=True,
+            show_navi_mark=True,
+            side_detector=dict(num_lasers=40, distance=50, gaussian_noise=0.0, dropout_prob=0.0),
+            lane_line_detector=dict(num_lasers=40, distance=20, gaussian_noise=0.0, dropout_prob=0.0),
+            show_side_detector=True,
+            show_lane_line_detector=True,
+        ),
+        accident_prob=0.0,
+        horizon=400,
+    )
+
+    return config
 
 def make_sim_env(task_name):
     """
@@ -47,6 +79,9 @@ def make_sim_env(task_name):
         task = InsertionTask(random=False)
         env = control.Environment(physics, task, time_limit=20, control_timestep=DT,
                                   n_sub_steps=None, flat_observation=False)
+    elif 'sim_turn_left' in task_name:
+        config = get_metadrive_config()
+        env = SafeMetaDriveEnv(config)
     else:
         raise NotImplementedError
     return env
