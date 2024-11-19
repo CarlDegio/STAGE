@@ -23,7 +23,7 @@ def get_metadrive_config():
         use_render=False,
         manual_control=False,
         traffic_density=0.05,
-        num_scenarios=1,
+        num_scenarios=10,
         start_seed=5009,
         random_agent_model=False,
         random_lane_width=False,

@@ -127,6 +127,8 @@ class DETRVAE(nn.Module):
             mu = logvar = None
             latent_sample = torch.zeros([bs, self.latent_dim], dtype=torch.float32).to(vec.device)
             latent_input = self.latent_out_proj(latent_sample)
+        # temporal remove cvae
+        # latent_input = torch.zeros_like(latent_input, device = latent_input.device)
 
         if self.backbones is not None:
             # Image observation features and position embeddings

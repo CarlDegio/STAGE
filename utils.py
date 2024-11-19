@@ -235,10 +235,10 @@ class EpisodicDataset(torch.utils.data.Dataset):
         self.norm_stats["steer_mean"] = steer_mean
         self.norm_stats["steer_std"] = steer_std
         
-        # self.norm_stats["traj_mean"] = np.zeros_like(traj_mean)
-        # self.norm_stats["traj_std"] = np.ones_like(traj_std)
-        # self.norm_stats["steer_mean"] = np.zeros_like(steer_mean)
-        # self.norm_stats["steer_std"] = np.ones_like(steer_std)
+        self.norm_stats["traj_mean"] = np.zeros_like(traj_mean)
+        self.norm_stats["traj_std"] = np.ones_like(traj_std)
+        self.norm_stats["steer_mean"] = np.zeros_like(steer_mean)
+        self.norm_stats["steer_std"] = np.ones_like(steer_std)
         # self.norm_stats["action_mean"] = np.array([0.0, 0.0], dtype=np.float32)
         # self.norm_stats["action_std"] = np.array([1.0, 1.0], dtype=np.float32)
 
