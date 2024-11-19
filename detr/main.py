@@ -60,7 +60,7 @@ def get_args_parser():
     parser.add_argument('--task_name', action='store', type=str, help='task_name', required=True)
     parser.add_argument('--seed', action='store', type=int, help='seed', required=True)
     parser.add_argument('--num_epochs', action='store', type=int, help='num_epochs', required=True)
-    parser.add_argument('--kl_weight', action='store', type=int, help='KL Weight', required=False)
+    parser.add_argument('--kl_weight', action='store', type=float, help='KL Weight', required=False)
     parser.add_argument('--chunk_size', action='store', type=int, help='chunk_size', required=False)
     parser.add_argument('--temporal_agg', action='store_true')
 

@@ -15,20 +15,20 @@ class ACTPolicy(nn.Module):
         self.kl_weight = args_override['kl_weight']
         print(f'KL Weight {self.kl_weight}')
 
-    def __call__(self, qpos, image, actions=None, is_pad=None):
+    def __call__(self, qpos, image, actions=None, is_pad=None, style_control=None, prefer_dict=None):
         env_state = None
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                          std=[0.229, 0.224, 0.225])
         image = normalize(image)
         if actions is not None: # training time
-            actions = actions[:, :self.model.num_queries]
-            is_pad = is_pad[:, :self.model.num_queries]
+            actions['traj_action'] = actions['traj_action'][:, :self.model.num_queries]
+            is_pad = is_pad[:, :self.model.num_queries+1]
 
             a_hat, is_pad_hat, (mu, logvar) = self.model(qpos, image, env_state, actions, is_pad)
             total_kld, dim_wise_kld, mean_kld = kl_divergence(mu, logvar)
             loss_dict = dict()
-            steer_throttle_l1 = F.l1_loss(actions['steer_throttle'], a_hat['steer_throttle'], reduction='none')
-            traj_l1 = F.l1_loss(actions['traj'], a_hat['traj'], reduction='none')*0.0
+            steer_throttle_l1 = F.l1_loss(actions['steer_throttle'], a_hat['steer_throttle'], reduction='none')*torch.tensor([2.0,1.0],device=actions['steer_throttle'].device)
+            traj_l1 = F.l1_loss(actions['traj_action'], a_hat['traj_action'], reduction='none')*0.0
             all_l1 = torch.cat([steer_throttle_l1, traj_l1], dim=1)
             l1 = (all_l1 * ~is_pad.unsqueeze(-1)).mean()
             loss_dict['l1'] = l1

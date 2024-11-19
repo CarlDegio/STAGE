@@ -18,7 +18,7 @@ from visualize_episodes import save_videos
 from sim_env import BOX_POSE
 from metadrive_util.trajectory import WaypointTrajectory
 from metadrive_util.turn_left_manual import get_other_vehicle_dict, get_history_info
-
+import cv2
 import IPython
 from drive_style_gui.gui import StyleGUI
 e = IPython.embed
@@ -90,15 +90,18 @@ def main(args):
     }
 
     if is_eval:
-        ckpt_names = [f'policy_best.ckpt']
+        ckpt_names = [f'policy_best.ckpt', 
+                      f'policy_epoch_100_seed_0.ckpt',
+                      f'policy_epoch_200_seed_0.ckpt',
+                      f'policy_epoch_300_seed_0.ckpt',
+                      f'policy_epoch_400_seed_0.ckpt']
         results = []
         for ckpt_name in ckpt_names:
-            success_rate, avg_return = eval_bc(
-                config, ckpt_name, save_episode=True)
-            results.append([ckpt_name, success_rate, avg_return])
+            avg_return = eval_bc(config, ckpt_name, save_episode=True)
+            results.append([ckpt_name, avg_return])
 
-        for ckpt_name, success_rate, avg_return in results:
-            print(f'{ckpt_name}: {success_rate=} {avg_return=}')
+        for ckpt_name, avg_return in results:
+            print(f'{ckpt_name}: {avg_return=}')
         print()
         exit()
 
@@ -161,22 +164,28 @@ def get_topdown_config():
     )
     return top_down_config
 
+
 def pre_process(vec_data, stats):
     for key in vec_data:
         vec_data[key] = (vec_data[key] - stats['vec_mean']
-                            [key]) / stats['vec_std'][key]
+                         [key]) / stats['vec_std'][key]
     return vec_data
 
+
 def post_process(a, stats):  # TODO: dict check
-    return a * stats['action_std'] + stats['action_mean']
+    steer_throttle = a['steer_throttle'] * stats['steer_std'] + stats['steer_mean']
+    traj = a['traj_action'] * stats['traj_std'] + stats['traj_mean']
+    return {'steer_throttle': steer_throttle, 'traj': traj}
+
 
 def get_action(policy, vec_data, curr_image, stats, style_control=0.0):
-    style_value, all_actions = policy(
+    all_actions = policy(
         vec_data, curr_image, style_control=style_control)
     for key in all_actions:
         all_actions[key] = all_actions[key].squeeze(0).cpu().numpy()
     denorm_actions = post_process(all_actions, stats)
     steer_throttle, local_traj = denorm_actions['steer_throttle'], denorm_actions['traj']
+    style_value = 1.234
     return style_value, steer_throttle, local_traj
 
 
@@ -220,7 +229,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
 
     max_timesteps = int(max_timesteps * 1)  # may increase for real-world tasks
 
-    num_rollouts = 50
+    num_rollouts = 3
     episode_returns = []
     highest_rewards = []
     for rollout_id in range(num_rollouts):
@@ -236,7 +245,6 @@ def eval_bc(config, ckpt_name, save_episode=True):
             all_time_actions = torch.zeros(
                 [max_timesteps, max_timesteps+num_queries, state_dim]).cuda()
 
-        qpos_history = torch.zeros((1, max_timesteps, state_dim)).cuda()
         image_list = []  # for visualization
         qpos_list = []
         target_qpos_list = []
@@ -245,9 +253,10 @@ def eval_bc(config, ckpt_name, save_episode=True):
         headings = []
         now_positions = []
 
-        gui = StyleGUI((10, 30))
+        # gui = StyleGUI((10, 30))
 
         with torch.inference_mode():
+            reward = 0
             for t in range(max_timesteps):
 
                 now_positions.append(env.agent.position)
@@ -277,16 +286,14 @@ def eval_bc(config, ckpt_name, save_episode=True):
                     if temporal_agg:
                         pass
                     else:
-                        read_sv = gui.read_style()
+                        # read_sv = gui.read_style()
+                        read_sv = 0.0
                         style_value1, steer_throttle1, local_traj1 = get_action(
                             policy, vec_data, curr_image, stats, style_control=read_sv)
                         style_value2, steer_throttle2, local_traj2 = get_action(
                             policy, vec_data, curr_image, stats, style_control=read_sv-2)
                         style_value3, steer_throttle3, local_traj3 = get_action(
                             policy, vec_data, curr_image, stats, style_control=read_sv+2)
-
-                elif config['policy_class'] == "CNNMLP":
-                    raw_action = policy(qpos, curr_image)
                 else:
                     raise NotImplementedError
 
@@ -304,64 +311,62 @@ def eval_bc(config, ckpt_name, save_episode=True):
                     local_traj3, env.agent.position, env.agent.heading_theta)
                 traj.draw_in_sim_local(drawer, rgba=np.array([0, 1, 0, 1]))
 
-                o, r, tm, tc, info = env.step(
-                    steer_throttle1*np.array([1/10, 1]))
+                
+                o, r, tm, tc, info = env.step(steer_throttle1.squeeze())
+                reward += r
 
                 if tm or tc:
+                    rewards.append(reward)
                     break
-
                 # onscreen render
-                if onscreen_render:
+                # if onscreen_render:
                     # ax = plt.subplot()
                     # plt_img = ax.imshow(env._physics.render(height=480, width=640, camera_id=onscreen_cam))
                     # plt.ion()
-                    env.render(text={'lane_idx': env.agent.lane.index, 'style_value': style_value.detach(
-                    ).cpu().numpy()})  # , 'position': env.agent.position})
+                    # env.render(text={'lane_idx': env.agent.lane.index, 'style_value': style_value1})  # , 'position': env.agent.position})
                     # env.render(text={'lane_idx': env.agent.lane.index, 'steering': env.agent.steering, })
                 # for visualization
                 # qpos_list.append(qpos_numpy)
                 # target_qpos_list.append(target_qpos)
-                # rewards.append(ts.reward)
+                    
 
             # plt.close()
 
         rewards = np.array(rewards)
-        episode_return = np.sum(rewards[rewards != None])
-        episode_returns.append(episode_return)
-        episode_highest_reward = np.max(rewards)
-        highest_rewards.append(episode_highest_reward)
-        print(f'Rollout {rollout_id}\n{episode_return=}, {episode_highest_reward=}, {env_max_reward=}, Success: {episode_highest_reward==env_max_reward}')
+        avg_return = np.mean(rewards)
+        # print(f'Rollout {rollout_id}\n{episode_return=}, {episode_highest_reward=}, {env_max_reward=}, Success: {episode_highest_reward==env_max_reward}')
 
         # if save_episode:
         #     save_videos(image_list, DT, video_path=os.path.join(ckpt_dir, f'video{rollout_id}.mp4'))
 
-    success_rate = np.mean(np.array(highest_rewards) == env_max_reward)
-    avg_return = np.mean(episode_returns)
-    summary_str = f'\nSuccess rate: {success_rate}\nAverage return: {avg_return}\n\n'
-    for r in range(env_max_reward+1):
-        more_or_equal_r = (np.array(highest_rewards) >= r).sum()
-        more_or_equal_r_rate = more_or_equal_r / num_rollouts
-        summary_str += f'Reward >= {r}: {more_or_equal_r}/{num_rollouts} = {more_or_equal_r_rate*100}%\n'
+    # success_rate = np.mean(np.array(highest_rewards) == env_max_reward)
+    # avg_return = np.mean(episode_returns)
+    # summary_str = f'\nSuccess rate: {success_rate}\nAverage return: {avg_return}\n\n'
+    # for r in range(env_max_reward+1):
+    #     more_or_equal_r = (np.array(highest_rewards) >= r).sum()
+    #     more_or_equal_r_rate = more_or_equal_r / num_rollouts
+    #     summary_str += f'Reward >= {r}: {more_or_equal_r}/{num_rollouts} = {more_or_equal_r_rate*100}%\n'
 
-    print(summary_str)
+    # print(summary_str)
 
     # save success rate to txt
-    result_file_name = 'result_' + ckpt_name.split('.')[0] + '.txt'
-    with open(os.path.join(ckpt_dir, result_file_name), 'w') as f:
-        f.write(summary_str)
-        f.write(repr(episode_returns))
-        f.write('\n\n')
-        f.write(repr(highest_rewards))
-
-    return success_rate, avg_return
+    # result_file_name = 'result_' + ckpt_name.split('.')[0] + '.txt'
+    # with open(os.path.join(ckpt_dir, result_file_name), 'w') as f:
+    #     f.write(summary_str)
+    #     f.write(repr(episode_returns))
+    #     f.write('\n\n')
+    #     f.write(repr(highest_rewards))
+    env.close()
+    return avg_return
 
 
 def forward_pass(data, policy):
     image_data, vec_data, action_data, is_pad, preference_dict = data
-    image_data, action_data, is_pad = image_data.cuda(), action_data.cuda(), is_pad.cuda()
+    image_data, is_pad = image_data.cuda(), is_pad.cuda()
+    for key in action_data:
+        action_data[key] = action_data[key].cuda()
     for key in vec_data:
         vec_data[key] = vec_data[key].cuda()
-    # TODO remove None
     return policy(vec_data, image_data, action_data, is_pad, prefer_dict=preference_dict)
 
 
@@ -375,6 +380,7 @@ def train_bc(train_dataloader, val_dataloader, config):
     set_seed(seed)
 
     policy = make_policy(policy_class, policy_config)
+    # policy.load_state_dict(torch.load(os.path.join(f'./ckpt1', f'policy_best.ckpt')))
     policy.cuda()
     optimizer = make_optimizer(policy_class, policy)
 
@@ -488,7 +494,7 @@ if __name__ == '__main__':
 
     # for ACT
     parser.add_argument('--kl_weight', action='store',
-                        type=int, help='KL Weight', required=False)
+                        type=float, help='KL Weight', required=False)
     parser.add_argument('--chunk_size', action='store',
                         type=int, help='chunk_size', required=False)
     parser.add_argument('--hidden_dim', action='store',

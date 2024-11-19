@@ -20,11 +20,11 @@ BOX_POSE = [None] # to be changed from outside
 
 def get_metadrive_config():
     config = dict(
-        use_render=True,
+        use_render=False,
         manual_control=False,
         traffic_density=0.05,
         num_scenarios=1,
-        start_seed=5008,
+        start_seed=5009,
         random_agent_model=False,
         random_lane_width=False,
         random_lane_num=False,  # 3 lanes

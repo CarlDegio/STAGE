@@ -135,7 +135,7 @@ class EpisodicDataset(torch.utils.data.Dataset):
             position_now = root['/position_now'][start_ts]
             preference_data = PreferenceData()
             preference_data.parse(root, start_ts, episode_len)
-            steer_throttle = preference_data.ego_control[1:2]
+            steer_throttle = preference_data.ego_control[1:2].astype(np.float32)
             action_aug = {'steer_throttle': steer_throttle,
                           'traj_action': traj_action}
             action_len = action_len + 1
@@ -153,67 +153,18 @@ class EpisodicDataset(torch.utils.data.Dataset):
         # action_array[:,0]=np.clip(action_array[:,0],0.0,np.inf)
         return action_array
 
-    def normalize_data(self, vec_data, image_data, action_data):
-        # channel last
-        image_data = torch.einsum('k h w c -> k c h w', image_data)
-
-        # normalize image and change dtype to float
-        image_data = image_data / 255.0
-        action_data = (
-            action_data - self.norm_stats["action_mean"]) / self.norm_stats["action_std"]
-        for key in vec_data:
-            vec_data[key] = (vec_data[key] - self.norm_stats["vec_mean"]
-                             [key]) / self.norm_stats["vec_std"][key]
-        return vec_data, image_data, action_data
-
-    def set_action_norm_stats(self):
-        norm_sample = 100
-        chunk_size = 10
-        all_traj_data = []
-        all_steer_data = []
-        for i in range(norm_sample):
-            choose_index = np.random.choice(len(self))
-            action_len = 0
-            while action_len < chunk_size + 1:
-                _, _, actions_aug, action_len, position_now, heading_now, _ = self.get_raw_traj(
-                    index=choose_index)
-            steer_throttle, positions = actions_aug['steer_throttle'], actions_aug['traj_action']
-            # positions, _ = self.positions_sample(positions)
-            local_position = self.transform_traj(
-                positions, position_now, heading_now)
-            local_position = local_position[:chunk_size]
-            all_traj_data.append(local_position)
-            all_steer_data.append(steer_throttle)
-
-        all_traj_data = np.concatenate(all_traj_data, axis=0)
-        all_steer_data = np.concatenate(all_steer_data, axis=0)
-
-        # normalize action data
-        action_mean = all_traj_data.mean(dim=[0], keepdim=True)
-        steer_mean = all_steer_data.mean(dim=[0], keepdim=True)
-        action_std = all_traj_data.std(dim=[0], keepdim=True)
-        steer_std = all_steer_data.std(dim=[0], keepdim=True)
-        action_std = np.clip(action_std, 1e-2, np.inf)
-        steer_std = np.clip(steer_std, 1e-2, np.inf)
-        self.norm_stats["traj_mean"] = action_mean.numpy().squeeze()
-        self.norm_stats["traj_std"] = action_std.numpy().squeeze()
-        self.norm_stats["steer_mean"] = steer_mean.numpy().squeeze()
-        self.norm_stats["steer_std"] = steer_std.numpy().squeeze()
-        # self.norm_stats["action_mean"] = np.array([0.0, 0.0], dtype=np.float32)
-        # self.norm_stats["action_std"] = np.array([1.0, 1.0], dtype=np.float32)
-
     def __getitem__(self, index):
-        original_action_shape = (400 + 1, 2)  # must same shape
-        (vec_data, image_dict, actions_aug, action_len,
+        original_traj_shape = (400, 2)  # must same shape
+        (vec_data, image_dict, actions_aug, action_aug_len,
          position_now, heading_now, preference_data) = self.get_raw_traj(index=index)
         steer_throttle, positions = actions_aug['steer_throttle'], actions_aug['traj_action']
 
         local_traj = self.transform_traj(positions, position_now, heading_now)
 
-        padded_traj = np.zeros(original_action_shape, dtype=np.float32)
-        padded_traj[:action_len] = local_traj
-        is_pad = np.zeros(original_action_shape[0])
-        is_pad[action_len:] = 1
+        padded_traj = np.zeros(original_traj_shape, dtype=np.float32)
+        padded_traj[:action_aug_len-1] = local_traj
+        is_pad = np.zeros(original_traj_shape[0])
+        is_pad[action_aug_len:] = 1
 
         # new axis for different cameras
         all_cam_images = []
@@ -234,6 +185,62 @@ class EpisodicDataset(torch.utils.data.Dataset):
             vec_data, image_data, action_data)
 
         return image_data, vec_data, action_data, is_pad, preference_data
+    
+    def normalize_data(self, vec_data, image_data, action_data):
+        # channel last
+        image_data = torch.einsum('k h w c -> k c h w', image_data)
+
+        # normalize image and change dtype to float
+        image_data = image_data / 255.0
+        action_data['traj_action'] = (
+            action_data['traj_action'][:10] - self.norm_stats["traj_mean"]) / self.norm_stats["traj_std"]
+        action_data['steer_throttle'] = (
+            action_data['steer_throttle'] - self.norm_stats["steer_mean"]) / self.norm_stats["steer_std"]
+        for key in vec_data:
+            vec_data[key] = (vec_data[key] - self.norm_stats["vec_mean"]
+                             [key]) / self.norm_stats["vec_std"][key]
+        return vec_data, image_data, action_data
+    
+    def set_action_norm_stats(self):
+        norm_sample = 100
+        chunk_size = 10
+        all_traj_data = []
+        all_steer_data = []
+        for i in range(norm_sample):
+            choose_index = np.random.choice(len(self))
+            action_len = 0
+            while action_len < chunk_size + 1:
+                _, _, actions_aug, action_len, position_now, heading_now, _ = self.get_raw_traj(
+                    index=choose_index)
+            steer_throttle, positions = actions_aug['steer_throttle'], actions_aug['traj_action']
+            # positions, _ = self.positions_sample(positions)
+            local_position = self.transform_traj(
+                positions, position_now, heading_now)
+            local_position = local_position[:chunk_size]
+            all_traj_data.append(local_position)
+            all_steer_data.append(steer_throttle)
+
+        all_traj_data = np.stack(all_traj_data)
+        all_steer_data = np.stack(all_steer_data)
+
+        # normalize action data
+        traj_mean = all_traj_data.mean(axis=0)
+        steer_mean = all_steer_data.mean(axis=0)
+        traj_std = all_traj_data.std(axis=0)
+        steer_std = all_steer_data.std(axis=0)
+        traj_std = np.clip(traj_std, 1e-2, np.inf)
+        steer_std = np.clip(steer_std, 1e-2, np.inf)
+        self.norm_stats["traj_mean"] = traj_mean
+        self.norm_stats["traj_std"] = traj_std
+        self.norm_stats["steer_mean"] = steer_mean
+        self.norm_stats["steer_std"] = steer_std
+        
+        # self.norm_stats["traj_mean"] = np.zeros_like(traj_mean)
+        # self.norm_stats["traj_std"] = np.ones_like(traj_std)
+        # self.norm_stats["steer_mean"] = np.zeros_like(steer_mean)
+        # self.norm_stats["steer_std"] = np.ones_like(steer_std)
+        # self.norm_stats["action_mean"] = np.array([0.0, 0.0], dtype=np.float32)
+        # self.norm_stats["action_std"] = np.array([1.0, 1.0], dtype=np.float32)
 
 
 def get_vec_norm_stats(dataset_dir, num_episodes):

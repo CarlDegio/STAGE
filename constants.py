@@ -1,7 +1,7 @@
 import pathlib
 
 ### Task parameters
-DATA_DIR = 'dataset'
+DATA_DIR = 'turn_left_dataset_manual'
 SIM_TASK_CONFIGS = {
     'sim_transfer_cube_scripted':{
         'dataset_dir': DATA_DIR,
