@@ -91,10 +91,10 @@ def main(args):
 
     if is_eval:
         ckpt_names = [f'policy_best.ckpt', 
-                      f'policy_epoch_100_seed_0.ckpt',
                       f'policy_epoch_200_seed_0.ckpt',
-                      f'policy_epoch_300_seed_0.ckpt',
-                      f'policy_epoch_400_seed_0.ckpt']
+                      f'policy_epoch_400_seed_0.ckpt',
+                      f'policy_epoch_600_seed_0.ckpt',
+                      f'policy_epoch_800_seed_0.ckpt']
         results = []
         for ckpt_name in ckpt_names:
             avg_return = eval_bc(config, ckpt_name, save_episode=True)
@@ -267,11 +267,11 @@ def eval_bc(config, ckpt_name, save_episode=True):
                 history_info = get_history_info(
                     env, other_v_history, now_positions, headings)
                 vec_data = {}
+                vec_data['lidar_scan'] = o[96:96 + 240]
                 vec_data['side_detector'] = o[:40]
-                vec_data['ego_state'] = o[40:46]
                 vec_data['lane_detector'] = o[46:86]
                 vec_data['navi_info'] = o[86:96]
-                vec_data['lidar_scan'] = o[96:96 + 240]
+                vec_data['ego_state'] = o[40:46]
                 vec_data['history_info'] = history_info.reshape(5, 40)
                 vec_data = pre_process(vec_data, stats)
                 for key in vec_data:

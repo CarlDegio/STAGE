@@ -101,7 +101,6 @@ class EpisodicDataset(torch.utils.data.Dataset):
         return len(self.episode_ids)
 
     def get_raw_traj(self, index):
-        sample_full_episode = False  # hardcode
         episode_id = self.episode_ids[index]
         dataset_path = os.path.join(
             self.dataset_dir, f'episode_{episode_id}.hdf5')
@@ -110,10 +109,12 @@ class EpisodicDataset(torch.utils.data.Dataset):
             self.is_sim = is_sim
             episode_len = root['/action'].shape[0]
 
-            if sample_full_episode:
-                start_ts = 0
-            else:
-                start_ts = np.random.choice(episode_len - 5)  # TODO: hardcode
+            min_sample_index = 0
+            while root['/observations/ego_state'][min_sample_index+1][4]*2-1 == 0:
+                min_sample_index +=1
+            start_ts = np.random.choice(range(min_sample_index, episode_len - 5))  # TODO: hardcode
+                
+            
             # get observation at start_ts only
             vec_data = {'lidar_scan': root['/observations/lidar_scan'][start_ts],
                         'side_detector': root['/observations/side_detector'][start_ts],
@@ -133,6 +134,7 @@ class EpisodicDataset(torch.utils.data.Dataset):
 
             heading_now = root['/heading'][start_ts].squeeze()
             position_now = root['/position_now'][start_ts]
+            
             preference_data = PreferenceData()
             preference_data.parse(root, start_ts, episode_len)
             steer_throttle = preference_data.ego_control[1:2].astype(np.float32)
@@ -235,10 +237,10 @@ class EpisodicDataset(torch.utils.data.Dataset):
         self.norm_stats["steer_mean"] = steer_mean
         self.norm_stats["steer_std"] = steer_std
         
-        self.norm_stats["traj_mean"] = np.zeros_like(traj_mean)
-        self.norm_stats["traj_std"] = np.ones_like(traj_std)
-        self.norm_stats["steer_mean"] = np.zeros_like(steer_mean)
-        self.norm_stats["steer_std"] = np.ones_like(steer_std)
+        # self.norm_stats["traj_mean"] = np.zeros_like(traj_mean)
+        # self.norm_stats["traj_std"] = np.ones_like(traj_std)
+        # self.norm_stats["steer_mean"] = np.zeros_like(steer_mean)
+        # self.norm_stats["steer_std"] = np.ones_like(steer_std)
         # self.norm_stats["action_mean"] = np.array([0.0, 0.0], dtype=np.float32)
         # self.norm_stats["action_std"] = np.array([1.0, 1.0], dtype=np.float32)
 

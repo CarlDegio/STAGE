@@ -32,7 +32,7 @@ def get_metadrive_config():
 
         on_continuous_line_done=False,
         out_of_route_done=False,
-        crash_vehicle_done=False,
+        crash_vehicle_done=True,
         crash_object_done=False,
 
         vehicle_config=dict(
@@ -43,6 +43,7 @@ def get_metadrive_config():
             show_side_detector=True,
             show_lane_line_detector=True,
         ),
+        map=1,
         accident_prob=0.0,
         horizon=400,
     )
@@ -278,36 +279,4 @@ def get_action(master_bot_left, master_bot_right):
     action[7+6] = normalized_right_pos
     return action
 
-def test_sim_teleop():
-    """ Testing teleoperation in sim with ALOHA. Requires hardware and ALOHA repo to work. """
-    from interbotix_xs_modules.arm import InterbotixManipulatorXS
-
-    BOX_POSE[0] = [0.2, 0.5, 0.05, 1, 0, 0, 0]
-
-    # source of data
-    master_bot_left = InterbotixManipulatorXS(robot_model="wx250s", group_name="arm", gripper_name="gripper",
-                                              robot_name=f'master_left', init_node=True)
-    master_bot_right = InterbotixManipulatorXS(robot_model="wx250s", group_name="arm", gripper_name="gripper",
-                                              robot_name=f'master_right', init_node=False)
-
-    # setup the environment
-    env = make_sim_env('sim_transfer_cube')
-    ts = env.reset()
-    episode = [ts]
-    # setup plotting
-    ax = plt.subplot()
-    plt_img = ax.imshow(ts.observation['images']['angle'])
-    plt.ion()
-
-    for t in range(1000):
-        action = get_action(master_bot_left, master_bot_right)
-        ts = env.step(action)
-        episode.append(ts)
-
-        plt_img.set_data(ts.observation['images']['angle'])
-        plt.pause(0.02)
-
-
-if __name__ == '__main__':
-    test_sim_teleop()
 

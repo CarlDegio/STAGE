@@ -153,8 +153,8 @@ class DETRVAE(nn.Module):
             transformer_input = torch.cat([vec, env_state], axis=1) # seq length = 2
             latent_input, hs = self.transformer(transformer_input, None, self.query_embed.weight, self.pos.weight)
             hs = hs[0]
-        steer_throttle_hat = self.steer_throttle_head(hs[:, :1, :])
-        traj_hat = self.action_head(hs[:, 1:, :])
+        traj_hat = self.action_head(hs[:, :-1, :])
+        steer_throttle_hat = self.steer_throttle_head(hs[:, -1:, :])
         a_hat = {'steer_throttle': steer_throttle_hat, 'traj_action': traj_hat}
         is_pad_hat = self.is_pad_head(hs)
         return a_hat, is_pad_hat, [mu, logvar]

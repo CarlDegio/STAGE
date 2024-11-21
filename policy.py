@@ -28,7 +28,7 @@ class ACTPolicy(nn.Module):
             total_kld, dim_wise_kld, mean_kld = kl_divergence(mu, logvar)
             loss_dict = dict()
             steer_throttle_l1 = F.l1_loss(actions['steer_throttle'], a_hat['steer_throttle'], reduction='none')*torch.tensor([2.0,1.0],device=actions['steer_throttle'].device)
-            traj_l1 = F.l1_loss(actions['traj_action'], a_hat['traj_action'], reduction='none')*0.0
+            traj_l1 = F.l1_loss(actions['traj_action'], a_hat['traj_action'], reduction='none')*0.5
             all_l1 = torch.cat([steer_throttle_l1, traj_l1], dim=1)
             l1 = (all_l1 * ~is_pad.unsqueeze(-1)).mean()
             loss_dict['l1'] = l1
@@ -84,3 +84,32 @@ def kl_divergence(mu, logvar):
     mean_kld = klds.mean(1).mean(0, True)
 
     return total_kld, dimension_wise_kld, mean_kld
+
+def style_preference(style_value, prefer_dict, actions):
+    prefer_score = []
+    for i in range(actions.size(0)):
+        speed_score = prefer_dict['ego_vel_kmh'][i].mean() / 50
+        lane_diff_score = torch.abs(prefer_dict['ego_lane_diff_angle'][i]).mean() / (60 / 180 * np.pi)
+        throttle_score = prefer_dict['ego_control'][i].mean(axis=0)[1] / 1.0
+        if prefer_dict['has_nearest'][i] == True:
+            distance_score = 10 / prefer_dict['nearest_distance'][i].mean()
+        else:
+            distance_score = 0
+        score = speed_score
+        prefer_score.append(score)
+
+    loss = []
+    for i in range(0, style_value.size(0) - 1, 2):
+        if prefer_score[i] > prefer_score[i + 1]:
+            loss.append(
+                -torch.log(torch.exp(style_value[i]) / (torch.exp(style_value[i]) + torch.exp(style_value[i + 1]))))
+        elif prefer_score[i + 1] > prefer_score[i]:
+            loss.append(
+                -torch.log(torch.exp(style_value[i + 1]) / (torch.exp(style_value[i]) + torch.exp(style_value[i + 1]))))
+        else:
+            loss.append(-0.5 * torch.log(
+                torch.exp(style_value[i]) / (torch.exp(style_value[i]) + torch.exp(style_value[i + 1])))
+                        - 0.5 * torch.log(
+                torch.exp(style_value[i + 1]) / (torch.exp(style_value[i]) + torch.exp(style_value[i + 1]))))
+    loss = torch.stack(loss).mean()
+    return loss

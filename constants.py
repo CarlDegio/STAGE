@@ -1,7 +1,7 @@
 import pathlib
 
 ### Task parameters
-DATA_DIR = 'turn_left_dataset_374'
+DATA_DIR = 'turn_left_dataset_manual'
 SIM_TASK_CONFIGS = {
     'sim_transfer_cube_scripted':{
         'dataset_dir': DATA_DIR,
@@ -12,7 +12,7 @@ SIM_TASK_CONFIGS = {
     
     'sim_turn_left':{
         'dataset_dir': DATA_DIR,
-        'num_episodes': 370,
+        'num_episodes': 337,
         'episode_len': 400,
         'camera_names': ['top_down_view']
     },
