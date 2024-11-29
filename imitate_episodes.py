@@ -179,14 +179,13 @@ def post_process(a, stats):  # TODO: dict check
 
 
 def get_action(policy, vec_data, curr_image, stats, style_control=0.0):
-    all_actions = policy(
+    all_actions, output_style_value = policy(
         vec_data, curr_image, style_control=style_control)
     for key in all_actions:
         all_actions[key] = all_actions[key].squeeze(0).cpu().numpy()
     denorm_actions = post_process(all_actions, stats)
     steer_throttle, local_traj = denorm_actions['steer_throttle'], denorm_actions['traj']
-    style_value = 1.234
-    return style_value, steer_throttle, local_traj
+    return output_style_value, steer_throttle, local_traj
 
 
 def eval_bc(config, ckpt_name, save_episode=True):
@@ -253,7 +252,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
         headings = []
         now_positions = []
 
-        # gui = StyleGUI((10, 30))
+        gui = StyleGUI((-5, 5))
 
         with torch.inference_mode():
             reward = 0
@@ -286,8 +285,8 @@ def eval_bc(config, ckpt_name, save_episode=True):
                     if temporal_agg:
                         pass
                     else:
-                        # read_sv = gui.read_style()
-                        read_sv = 0.0
+                        read_sv = gui.read_style()
+                        # read_sv = 0.0
                         style_value1, steer_throttle1, local_traj1 = get_action(
                             policy, vec_data, curr_image, stats, style_control=read_sv)
                         style_value2, steer_throttle2, local_traj2 = get_action(
@@ -380,7 +379,8 @@ def train_bc(train_dataloader, val_dataloader, config):
     set_seed(seed)
 
     policy = make_policy(policy_class, policy_config)
-    # policy.load_state_dict(torch.load(os.path.join(f'./ckpt1', f'policy_best.ckpt')))
+    # policy.load_state_dict(torch.load(os.path.join(f'./ckpt_kl100_traj0.5_steer1_best', f'policy_best.ckpt')))
+    # print(f'!Loaded: {os.path.join("./ckpt_kl100_traj0.5_steer1_best", "policy_best.ckpt")}')
     policy.cuda()
     optimizer = make_optimizer(policy_class, policy)
 

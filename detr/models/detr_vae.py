@@ -80,14 +80,14 @@ class DETRVAE(nn.Module):
         self.cls_embed = nn.Embedding(1, hidden_dim) # extra cls token embedding
         self.encoder_action_proj = nn.Linear(2, hidden_dim) # project action to embedding
         self.encoder_joint_proj = nn.Linear(input_state_dim, hidden_dim)  # project qpos to embedding
-        self.latent_proj = nn.Linear(hidden_dim, self.latent_dim*2) # project hidden state to latent std, var
+        self.latent_proj = nn.Linear(hidden_dim, self.latent_dim*2 + 1) # project hidden state to latent std, var
         self.register_buffer('pos_table', get_sinusoid_encoding_table(1+1+1+num_queries, hidden_dim)) # [CLS], qpos, a_seq
 
         # decoder extra parameters
-        self.latent_out_proj = nn.Linear(self.latent_dim, hidden_dim) # project latent sample to embedding
+        self.latent_out_proj = nn.Linear(self.latent_dim + 1, hidden_dim) # project latent sample to embedding
         self.additional_pos_embed = nn.Embedding(2, hidden_dim) # learned position embedding for proprio and latent
 
-    def forward(self, vec_dict, image, env_state, actions=None, is_pad=None, traj_target=None ,style_control=None):
+    def forward(self, vec_dict, image, env_state, actions=None, is_pad=None, traj_target=None, style_control=None):
         """
         qpos: batch, qpos_dim
         image: batch, num_cam, channel, height, width
@@ -120,12 +120,16 @@ class DETRVAE(nn.Module):
             encoder_output = encoder_output[0] # take cls output only
             latent_info = self.latent_proj(encoder_output)
             mu = latent_info[:, :self.latent_dim]
-            logvar = latent_info[:, self.latent_dim:]
+            logvar = latent_info[:, self.latent_dim: -1]
             latent_sample = reparametrize(mu, logvar)
+            style_value = latent_info[:, -1:]
+            latent_sample = torch.cat([latent_sample, style_value], axis=1)
             latent_input = self.latent_out_proj(latent_sample)
         else:
             mu = logvar = None
             latent_sample = torch.zeros([bs, self.latent_dim], dtype=torch.float32).to(vec.device)
+            style_value = style_control
+            latent_sample = torch.cat([latent_sample, style_value], axis=1)
             latent_input = self.latent_out_proj(latent_sample)
         # temporal remove cvae
         # latent_input = torch.zeros_like(latent_input, device = latent_input.device)
@@ -157,7 +161,7 @@ class DETRVAE(nn.Module):
         steer_throttle_hat = self.steer_throttle_head(hs[:, -1:, :])
         a_hat = {'steer_throttle': steer_throttle_hat, 'traj_action': traj_hat}
         is_pad_hat = self.is_pad_head(hs)
-        return a_hat, is_pad_hat, [mu, logvar]
+        return a_hat, is_pad_hat, [mu, logvar], style_value
 
 
 
