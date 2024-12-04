@@ -22,18 +22,18 @@ def get_metadrive_config():
     config = dict(
         use_render=False,
         manual_control=False,
-        traffic_density=0.05,
-        num_scenarios=10,
+        traffic_density=0.1,
+        num_scenarios=20,
         start_seed=5009,
         random_agent_model=False,
         random_lane_width=False,
         random_lane_num=False,  # 3 lanes
         random_traffic=False,
 
-        on_continuous_line_done=False,
-        out_of_route_done=False,
+        on_continuous_line_done=True,
+        out_of_route_done=True,
         crash_vehicle_done=True,
-        crash_object_done=False,
+        crash_object_done=True,
 
         vehicle_config=dict(
             show_lidar=True,

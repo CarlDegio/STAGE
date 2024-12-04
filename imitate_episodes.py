@@ -21,6 +21,7 @@ from metadrive_util.turn_left_manual import get_other_vehicle_dict, get_history_
 import cv2
 import IPython
 from drive_style_gui.gui import StyleGUI
+from metadrive_util.draw_top_down_point import transform_traj_pos2pix, calc_top_down_position
 e = IPython.embed
 
 
@@ -90,11 +91,13 @@ def main(args):
     }
 
     if is_eval:
-        ckpt_names = [f'policy_best.ckpt', 
-                      f'policy_epoch_200_seed_0.ckpt',
-                      f'policy_epoch_400_seed_0.ckpt',
-                      f'policy_epoch_600_seed_0.ckpt',
-                      f'policy_epoch_800_seed_0.ckpt']
+        ckpt_names = [
+                    #   f'policy_best.ckpt', 
+                    #   f'policy_epoch_200_seed_0.ckpt',
+                    #   f'policy_epoch_400_seed_0.ckpt',
+                    #   f'policy_epoch_600_seed_0.ckpt',
+                      f'policy_epoch_900_seed_0.ckpt'
+                      ]
         results = []
         for ckpt_name in ckpt_names:
             avg_return = eval_bc(config, ckpt_name, save_episode=True)
@@ -228,9 +231,10 @@ def eval_bc(config, ckpt_name, save_episode=True):
 
     max_timesteps = int(max_timesteps * 1)  # may increase for real-world tasks
 
-    num_rollouts = 3
-    episode_returns = []
+    num_rollouts = 20
+    episode_distance = []
     highest_rewards = []
+    gui = StyleGUI((-5, 5))
     for rollout_id in range(num_rollouts):
         rollout_id += 0
 
@@ -251,8 +255,6 @@ def eval_bc(config, ckpt_name, save_episode=True):
         other_v_history = []
         headings = []
         now_positions = []
-
-        gui = StyleGUI((-5, 5))
 
         with torch.inference_mode():
             reward = 0
@@ -278,6 +280,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
                         vec_data[key]).float().cuda().unsqueeze(0)
 
                 curr_image = env.render(**get_topdown_config())
+                cv_image = curr_image.copy()
                 curr_image = get_image(curr_image)
 
                 # query policy
@@ -290,9 +293,9 @@ def eval_bc(config, ckpt_name, save_episode=True):
                         style_value1, steer_throttle1, local_traj1 = get_action(
                             policy, vec_data, curr_image, stats, style_control=read_sv)
                         style_value2, steer_throttle2, local_traj2 = get_action(
-                            policy, vec_data, curr_image, stats, style_control=read_sv-2)
+                            policy, vec_data, curr_image, stats, style_control=read_sv-3)
                         style_value3, steer_throttle3, local_traj3 = get_action(
-                            policy, vec_data, curr_image, stats, style_control=read_sv+2)
+                            policy, vec_data, curr_image, stats, style_control=read_sv+3)
                 else:
                     raise NotImplementedError
 
@@ -310,6 +313,25 @@ def eval_bc(config, ckpt_name, save_episode=True):
                     local_traj3, env.agent.position, env.agent.heading_theta)
                 traj.draw_in_sim_local(drawer, rgba=np.array([0, 1, 0, 1]))
 
+                global_waypoints1 = traj.local_waypoint_to_global(local_traj1, env.agent.position, env.agent.heading_theta)[1:]
+                global_waypoints2 = traj.local_waypoint_to_global(local_traj2, env.agent.position, env.agent.heading_theta)[1:]
+                global_waypoints3 = traj.local_waypoint_to_global(local_traj3, env.agent.position, env.agent.heading_theta)[1:]
+                agent_pix_point = env.top_down_renderer._frame_canvas.pos2pix(env.agent.position[0],env.agent.position[1])
+                traj_film_pix_point1 = transform_traj_pos2pix(env, global_waypoints1)
+                traj_film_pix_point2 = transform_traj_pos2pix(env, global_waypoints2)
+                traj_film_pix_point3 = transform_traj_pos2pix(env, global_waypoints3)
+                screen_pix_position1 = calc_top_down_position(traj_film_pix_point1, agent_pix_point, env.agent.heading_theta)
+                screen_pix_position2 = calc_top_down_position(traj_film_pix_point2, agent_pix_point, env.agent.heading_theta)
+                screen_pix_position3 = calc_top_down_position(traj_film_pix_point3, agent_pix_point, env.agent.heading_theta)
+                for point in screen_pix_position1.astype(int):
+                    cv2.circle(cv_image, tuple(point), radius=1, color=(255, 0, 0), thickness=-1)
+                for point in screen_pix_position2.astype(int):
+                    cv2.circle(cv_image, tuple(point), radius=1, color=(0, 255, 0), thickness=-1)
+                for point in screen_pix_position3.astype(int):
+                    cv2.circle(cv_image, tuple(point), radius=1, color=(0, 0, 255), thickness=-1)
+                cv2.resize(cv_image,(448,448))
+                cv2.imshow("Top-Down with Traj Point", cv_image)
+                cv2.waitKey(1)
                 
                 o, r, tm, tc, info = env.step(steer_throttle1.squeeze())
                 reward += r
@@ -330,7 +352,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
                     
 
             # plt.close()
-
+        episode_distance.append(sum([np.linalg.norm(np.array(now_positions[i+1]) - np.array(now_positions[i])) for i in range(len(now_positions)-1)]))
         rewards = np.array(rewards)
         avg_return = np.mean(rewards)
         # print(f'Rollout {rollout_id}\n{episode_return=}, {episode_highest_reward=}, {env_max_reward=}, Success: {episode_highest_reward==env_max_reward}')
@@ -355,6 +377,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
     #     f.write(repr(episode_returns))
     #     f.write('\n\n')
     #     f.write(repr(highest_rewards))
+    print(f'Episode distance mean: {np.mean(episode_distance)}')
     env.close()
     return avg_return
 
@@ -395,7 +418,7 @@ def train_bc(train_dataloader, val_dataloader, config):
             policy.eval()
             epoch_dicts = []
             for batch_idx, data in enumerate(val_dataloader):
-                forward_dict = forward_pass(data, policy)
+                forward_dict, _ = forward_pass(data, policy)
                 epoch_dicts.append(forward_dict)
             epoch_summary = compute_dict_mean(epoch_dicts)
             validation_history.append(epoch_summary)
@@ -415,7 +438,7 @@ def train_bc(train_dataloader, val_dataloader, config):
         policy.train()
         optimizer.zero_grad()
         for batch_idx, data in enumerate(train_dataloader):
-            forward_dict = forward_pass(data, policy)
+            forward_dict, _ = forward_pass(data, policy)
             # backward
             loss = forward_dict['loss']
             loss.backward()

@@ -39,7 +39,7 @@ class ACTPolicy(nn.Module):
             loss_dict['kl'] = total_kld[0]
             loss_dict['style'] = style_preference(style_value, prefer_dict, actions)
             loss_dict['loss'] = loss_dict['l1'] + loss_dict['kl'] * self.kl_weight + loss_dict['style'] * self.style_weight
-            return loss_dict
+            return loss_dict, style_value
         else: # inference time
             style_control = torch.tensor(style_control, device=image.device, dtype=torch.float32)
             style_control = style_control.unsqueeze(0).unsqueeze(0)
@@ -96,13 +96,13 @@ def style_preference(style_value, prefer_dict, actions):
     prefer_score = []
     for i in range(style_value.size(0)):
         speed_score = prefer_dict['ego_vel_kmh'][i].mean() / 50
-        lane_diff_score = torch.abs(prefer_dict['ego_lane_diff_angle'][i]).mean() / (60 / 180 * np.pi)
+        lane_diff_score = torch.abs(prefer_dict['ego_lane_diff_angle'][i]).mean() / (90 / 180 * np.pi)
         throttle_score = prefer_dict['ego_control'][i].mean(axis=0)[1] / 1.0
         if prefer_dict['has_nearest'][i] == True:
             distance_score = 10 / prefer_dict['nearest_distance'][i].mean()
         else:
             distance_score = 0
-        score = speed_score
+        score = speed_score + throttle_score + distance_score + lane_diff_score
         prefer_score.append(score)
 
     loss = []

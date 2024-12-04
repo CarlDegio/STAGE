@@ -13,12 +13,12 @@ METADRIVE_DEBUG = False
 
 def get_metadrive_config():
     config = dict(
-        use_render=True,
-        # manual_control=True,
+        use_render=False,
+        manual_control=True,
         # controller="steering_wheel",
-        traffic_density=0.5,
-        num_scenarios=200,
-        start_seed=5008,
+        traffic_density=0.1,
+        num_scenarios=1,
+        start_seed=5000,
         random_agent_model=False,
         random_lane_width=False,
         random_lane_num=False,  # 3 lanes
@@ -54,7 +54,7 @@ def get_metadrive_config():
         scaling=2.5,
         target_agent_heading_up=True,
         semantic_map=True,
-        window=False
+        window=True
     )
 
     return config, top_down_config
@@ -223,7 +223,7 @@ def get_history_info(env: SafeMetaDriveEnv, other_v_history, ego_pos_history, eg
 
 def main():
     config, top_down_config = get_metadrive_config()
-    dataset_dir = 'scene/turn_left_dataset'
+    dataset_dir = 'temp_traj'
     if not os.path.isdir(dataset_dir):
         os.makedirs(dataset_dir, exist_ok=True)
 
@@ -237,9 +237,9 @@ def main():
         if METADRIVE_DEBUG:
             env.engine.toggleDebug()
 
-        env.agent.expert_takeover = False
-        log_episode = 338
-        for episode in range(log_episode, 400):
+        env.agent.expert_takeover = True
+        log_episode = 1
+        for episode in range(log_episode, 2):
             observations = []
             frames = []
             next_pos_actions = []

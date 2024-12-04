@@ -142,6 +142,52 @@ class EpisodicDataset(torch.utils.data.Dataset):
                           'traj_action': traj_action}
             action_len = action_len + 1
         return vec_data, image_dict, action_aug, action_len, position_now, heading_now, preference_data.to_dict()
+    
+    def get_raw_traj_length(self, index):
+        episode_id = self.episode_ids[index]
+        dataset_path = os.path.join(
+            self.dataset_dir, f'episode_{episode_id}.hdf5')
+        with h5py.File(dataset_path, 'r') as root:
+            return root['/action'].shape[0]
+    
+    def get_raw_traj_by_ts(self, index, start_ts):
+        episode_id = self.episode_ids[index]
+        dataset_path = os.path.join(
+            self.dataset_dir, f'episode_{episode_id}.hdf5')
+        with h5py.File(dataset_path, 'r') as root:
+            is_sim = root.attrs['sim']
+            self.is_sim = is_sim
+            episode_len = root['/action'].shape[0]
+            
+            if start_ts >= episode_len or start_ts < 0:
+                raise ValueError(f'start_ts {start_ts} is out of range for episode {episode_id} with length {episode_len}')
+
+            # get observation at start_ts only
+            vec_data = {'lidar_scan': root['/observations/lidar_scan'][start_ts],
+                        'side_detector': root['/observations/side_detector'][start_ts],
+                        'lane_detector': root['/observations/lane_detector'][start_ts],
+                        'navi_info': root['/observations/navi_info'][start_ts],
+                        'ego_state': root['/observations/ego_state'][start_ts],
+                        'history_info': root['/observations/history_info'][start_ts].reshape(5, 40)
+                        }
+
+            image_dict = dict()
+            for cam_name in self.camera_names:
+                image_dict[cam_name] = root[f'/observations/images/{cam_name}'][start_ts]
+
+            traj_action = root['/action'][start_ts:]
+            action_len = episode_len - start_ts
+
+            heading_now = root['/heading'][start_ts].squeeze()
+            position_now = root['/position_now'][start_ts]
+            
+            preference_data = PreferenceData()
+            preference_data.parse(root, start_ts, episode_len)
+            steer_throttle = preference_data.ego_control[1:2].astype(np.float32)
+            action_aug = {'steer_throttle': steer_throttle,
+                          'traj_action': traj_action}
+            action_len = action_len + 1
+        return vec_data, image_dict, action_aug, action_len, position_now, heading_now, preference_data.to_dict()
 
     def transform_traj(self, position_array, position_now, heading_now):
         """
