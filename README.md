@@ -24,7 +24,6 @@
     pip install torch
     pip install pyquaternion
     pip install pyyaml
-    pip install rospkg
     pip install pexpect
     pip install mujoco==2.3.7
     pip install dm_control==1.0.14
