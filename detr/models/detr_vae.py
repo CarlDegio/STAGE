@@ -124,18 +124,20 @@ class DETRVAE(nn.Module):
             latent_sample = reparametrize(mu, logvar)
             # latent_sample = torch.zeros_like(latent_sample, device=latent_sample.device)
             style_value = latent_info[:, -1:]
+            # style_value = torch.zeros_like(style_value, device=style_value.device)
             latent_sample = torch.cat([latent_sample, style_value], axis=1)
             # temporal remove cvae and style
-            # latent_sample = torch.zeros_like(latent_sample, device=latent_sample.device)
             latent_input = self.latent_out_proj(latent_sample)
+            # latent_input = torch.zeros_like(latent_input, device=latent_input.device)
         else:
             mu = logvar = None
             latent_sample = torch.zeros([bs, self.latent_dim], dtype=torch.float32).to(vec.device)
             # latent_sample = torch.zeros_like(latent_sample, device=latent_sample.device)
             style_value = style_control
+            # style_value = torch.zeros_like(style_value, device=style_value.device)
             latent_sample = torch.cat([latent_sample, style_value], axis=1)
-            # latent_sample = torch.zeros_like(latent_sample, device=latent_sample.device)
             latent_input = self.latent_out_proj(latent_sample)
+            # latent_input = torch.zeros_like(latent_input, device=latent_input.device)
         # temporal remove cvae
         # latent_input = torch.zeros_like(latent_input, device = latent_input.device)
 
