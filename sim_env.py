@@ -80,7 +80,7 @@ def make_sim_env(task_name):
         task = InsertionTask(random=False)
         env = control.Environment(physics, task, time_limit=20, control_timestep=DT,
                                   n_sub_steps=None, flat_observation=False)
-    elif 'sim_turn_left' in task_name:
+    elif 'sim_drive' in task_name:
         config = get_metadrive_config()
         env = SafeMetaDriveEnv(config)
     else:

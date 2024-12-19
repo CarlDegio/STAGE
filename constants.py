@@ -10,7 +10,7 @@ SIM_TASK_CONFIGS = {
         'camera_names': ['top']
     },
     
-    'sim_turn_left':{
+    'sim_drive':{
         'dataset_dir': DATA_DIR,
         'num_episodes': 337,
         'episode_len': 400,
