@@ -17,7 +17,7 @@ from visualize_episodes import save_videos
 
 from sim_env import BOX_POSE
 from metadrive_util.trajectory import WaypointTrajectory
-from metadrive_util.turn_left_manual import get_other_vehicle_dict, get_history_info
+from metadrive_util.collect_dataset_manual import get_other_vehicle_dict, get_history_info, parse_data, save_episode_data
 import cv2
 import IPython
 from drive_style_gui.gui import StyleGUI
@@ -92,19 +92,20 @@ def main(args):
 
     if is_eval:
         ckpt_names = [
-                    #   f'policy_best.ckpt', 
-                    #   f'policy_epoch_200_seed_0.ckpt',
-                    #   f'policy_epoch_400_seed_0.ckpt',
-                    #   f'policy_epoch_600_seed_0.ckpt',
-                      f'policy_epoch_900_seed_0.ckpt'
+                      f'policy_best.ckpt', 
+                    #   f'policy_epoch_500_seed_0.ckpt',
+                      f'policy_epoch_600_seed_0.ckpt',
+                      f'policy_epoch_900_seed_0.ckpt',
+                    #   f'policy_epoch_900_seed_0.ckpt'
+                      
                       ]
         results = []
         for ckpt_name in ckpt_names:
-            avg_return = eval_bc(config, ckpt_name, save_episode=True)
-            results.append([ckpt_name, avg_return])
+            avg_return, avg_distance = eval_bc(config, ckpt_name, save_episode=True)
+            results.append([ckpt_name, avg_return, avg_distance])
 
-        for ckpt_name, avg_return in results:
-            print(f'{ckpt_name}: {avg_return=}')
+        for ckpt_name, avg_return, avg_distance in results:
+            print(f'{ckpt_name}: {avg_return=}, {avg_distance=}')
         print()
         exit()
 
@@ -163,7 +164,8 @@ def get_topdown_config():
         screen_size=(224, 224),
         scaling=2.5,
         target_agent_heading_up=True,
-        semantic_map=True
+        semantic_map=True,
+        window=True
     )
     return top_down_config
 
@@ -234,7 +236,11 @@ def eval_bc(config, ckpt_name, save_episode=True):
     num_rollouts = 20
     episode_distance = []
     highest_rewards = []
-    gui = StyleGUI((-5, 5))
+    save_flag = True
+    speed_kmh_list = []
+    steer_throttle_list = []
+    gui = StyleGUI((-10, 10))
+    # style_value_array = np.load(f'./temp_traj/style_value_5011_d0_3.npy')
     for rollout_id in range(num_rollouts):
         rollout_id += 0
 
@@ -248,18 +254,21 @@ def eval_bc(config, ckpt_name, save_episode=True):
             all_time_actions = torch.zeros(
                 [max_timesteps, max_timesteps+num_queries, state_dim]).cuda()
 
-        image_list = []  # for visualization
-        qpos_list = []
-        target_qpos_list = []
+        
         rewards = []
-        other_v_history = []
+        observations = []
+        frames = []
+        next_pos_actions = []
         headings = []
         now_positions = []
+        other_v_history = []
+        history_infos = []
 
         with torch.inference_mode():
             reward = 0
             for t in range(max_timesteps):
-
+                
+                observations.append(o)
                 now_positions.append(env.agent.position)
                 headings.append([env.agent.heading_theta])
 
@@ -267,6 +276,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
                 other_v_history.append(other_v_dict)
                 history_info = get_history_info(
                     env, other_v_history, now_positions, headings)
+                history_infos.append(history_info)
                 vec_data = {}
                 vec_data['lidar_scan'] = o[96:96 + 240]
                 vec_data['side_detector'] = o[:40]
@@ -274,12 +284,17 @@ def eval_bc(config, ckpt_name, save_episode=True):
                 vec_data['navi_info'] = o[86:96]
                 vec_data['ego_state'] = o[40:46]
                 vec_data['history_info'] = history_info.reshape(5, 40)
+                speed_kmh = vec_data['ego_state'][1:2] * (80 + 1) - 1
+                speed_kmh_list.append(speed_kmh)
                 vec_data = pre_process(vec_data, stats)
+                
+                
                 for key in vec_data:
                     vec_data[key] = torch.from_numpy(
                         vec_data[key]).float().cuda().unsqueeze(0)
 
                 curr_image = env.render(**get_topdown_config())
+                frames.append(curr_image)
                 cv_image = curr_image.copy()
                 curr_image = get_image(curr_image)
 
@@ -289,13 +304,16 @@ def eval_bc(config, ckpt_name, save_episode=True):
                         pass
                     else:
                         read_sv = gui.read_style()
-                        # read_sv = 0.0
+                        # if t<style_value_array.shape[0]:
+                        #     read_sv = style_value_array[t].item()
+                        # else:
+                        #     read_sv = style_value_array[-1].item()
                         style_value1, steer_throttle1, local_traj1 = get_action(
                             policy, vec_data, curr_image, stats, style_control=read_sv)
                         style_value2, steer_throttle2, local_traj2 = get_action(
-                            policy, vec_data, curr_image, stats, style_control=read_sv-3)
+                            policy, vec_data, curr_image, stats, style_control=read_sv-2)
                         style_value3, steer_throttle3, local_traj3 = get_action(
-                            policy, vec_data, curr_image, stats, style_control=read_sv+3)
+                            policy, vec_data, curr_image, stats, style_control=read_sv+2)
                 else:
                     raise NotImplementedError
 
@@ -323,32 +341,32 @@ def eval_bc(config, ckpt_name, save_episode=True):
                 screen_pix_position1 = calc_top_down_position(traj_film_pix_point1, agent_pix_point, env.agent.heading_theta)
                 screen_pix_position2 = calc_top_down_position(traj_film_pix_point2, agent_pix_point, env.agent.heading_theta)
                 screen_pix_position3 = calc_top_down_position(traj_film_pix_point3, agent_pix_point, env.agent.heading_theta)
-                for point in screen_pix_position1.astype(int):
-                    cv2.circle(cv_image, tuple(point), radius=1, color=(255, 0, 0), thickness=-1)
-                for point in screen_pix_position2.astype(int):
-                    cv2.circle(cv_image, tuple(point), radius=1, color=(0, 255, 0), thickness=-1)
+                
+                cv_image=cv2.resize(cv_image,(448,448))
+                # 创建透明的overlay (BGRA格式)
+                overlay1 = np.zeros((448,448,4), dtype=np.uint8)
+                overlay2 = np.zeros((448,448,4), dtype=np.uint8)
+                overlay3 = np.zeros((448,448,4), dtype=np.uint8)
+                
                 for point in screen_pix_position3.astype(int):
-                    cv2.circle(cv_image, tuple(point), radius=1, color=(0, 0, 255), thickness=-1)
-                cv2.resize(cv_image,(448,448))
+                    cv2.circle(cv_image, tuple(2*point), radius=2, color=(0,0,255), thickness=-1)
+                
                 cv2.imshow("Top-Down with Traj Point", cv_image)
                 cv2.waitKey(1)
                 
                 o, r, tm, tc, info = env.step(steer_throttle1.squeeze())
+                steer_throttle_list.append(steer_throttle1.squeeze())
+                next_pos_actions.append(env.agent.position)
                 reward += r
 
                 if tm or tc:
                     rewards.append(reward)
+                    if info['arrive_dest'] and save_flag:
+                        print(f"success, save rollout_id {rollout_id} episode data...")
+                        # data_dict = parse_data(observations, frames, next_pos_actions, now_positions, headings,
+                        #                        history_infos) # 会修改值，测试平均里程时勿跑
+                        # save_episode_data(data_dict, 'temp_traj', rollout_id+10)
                     break
-                # onscreen render
-                # if onscreen_render:
-                    # ax = plt.subplot()
-                    # plt_img = ax.imshow(env._physics.render(height=480, width=640, camera_id=onscreen_cam))
-                    # plt.ion()
-                    # env.render(text={'lane_idx': env.agent.lane.index, 'style_value': style_value1})  # , 'position': env.agent.position})
-                    # env.render(text={'lane_idx': env.agent.lane.index, 'steering': env.agent.steering, })
-                # for visualization
-                # qpos_list.append(qpos_numpy)
-                # target_qpos_list.append(target_qpos)
                     
 
             # plt.close()
@@ -360,28 +378,37 @@ def eval_bc(config, ckpt_name, save_episode=True):
         # if save_episode:
         #     save_videos(image_list, DT, video_path=os.path.join(ckpt_dir, f'video{rollout_id}.mp4'))
 
-    # success_rate = np.mean(np.array(highest_rewards) == env_max_reward)
-    # avg_return = np.mean(episode_returns)
-    # summary_str = f'\nSuccess rate: {success_rate}\nAverage return: {avg_return}\n\n'
-    # for r in range(env_max_reward+1):
-    #     more_or_equal_r = (np.array(highest_rewards) >= r).sum()
-    #     more_or_equal_r_rate = more_or_equal_r / num_rollouts
-    #     summary_str += f'Reward >= {r}: {more_or_equal_r}/{num_rollouts} = {more_or_equal_r_rate*100}%\n'
-
-    # print(summary_str)
-
-    # save success rate to txt
-    # result_file_name = 'result_' + ckpt_name.split('.')[0] + '.txt'
-    # with open(os.path.join(ckpt_dir, result_file_name), 'w') as f:
-    #     f.write(summary_str)
-    #     f.write(repr(episode_returns))
-    #     f.write('\n\n')
-    #     f.write(repr(highest_rewards))
-    print(f'Episode distance mean: {np.mean(episode_distance)}')
+    avg_distance = np.mean(episode_distance)
+    print(f'Episode distance mean: {avg_distance}')
+    # gui.close()
     env.close()
-    return avg_return
+    draw_speed_throttle_distribution(speed_kmh_list, steer_throttle_list, ckpt_name)
+    return avg_return, avg_distance
 
-
+def draw_speed_throttle_distribution(speed_kmh_list, steer_throttle_list, ckpt_name):
+    plt.figure(1)
+    
+    plt.subplot(1, 2, 1)
+    speed_kmh_array = np.concatenate(speed_kmh_list)
+    plt.hist(speed_kmh_array, bins=20, edgecolor='black')
+    plt.title('Speed Distribution')
+    plt.xlabel('Speed (km/h)')
+    plt.ylabel('Count')
+    
+    plt.subplot(1, 2, 2)
+    throttle_values = [x[1] for x in steer_throttle_list]  # Get throttle values
+    throttle_values = np.array(throttle_values)
+    plt.hist(throttle_values, bins=20, edgecolor='black')
+    plt.title('Throttle Distribution') 
+    plt.xlabel('Throttle Value')
+    plt.ylabel('Count')
+    
+    plt.tight_layout()
+    np.save(f'ablation_data/kl10_prefer10_{ckpt_name}_speed.npy', speed_kmh_array)
+    np.save(f'ablation_data/kl10_prefer10_{ckpt_name}_throttle.npy', throttle_values)
+    plt.show()
+    
+    
 def forward_pass(data, policy):
     image_data, vec_data, action_data, is_pad, preference_dict = data
     image_data, is_pad = image_data.cuda(), is_pad.cuda()
@@ -455,6 +482,7 @@ def train_bc(train_dataloader, val_dataloader, config):
         print(summary_string)
 
         if epoch % 100 == 0:
+            # policy.save_preference_dict()
             ckpt_path = os.path.join(
                 ckpt_dir, f'policy_epoch_{epoch}_seed_{seed}.ckpt')
             torch.save(policy.state_dict(), ckpt_path)

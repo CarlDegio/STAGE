@@ -17,7 +17,7 @@ def get_metadrive_config():
         manual_control=True,
         # controller="steering_wheel",
         traffic_density=0.1,
-        num_scenarios=1,
+        num_scenarios=200,
         start_seed=5000,
         random_agent_model=False,
         random_lane_width=False,
@@ -223,7 +223,7 @@ def get_history_info(env: SafeMetaDriveEnv, other_v_history, ego_pos_history, eg
 
 def main():
     config, top_down_config = get_metadrive_config()
-    dataset_dir = 'temp_traj'
+    dataset_dir = 'manual_dataset'
     if not os.path.isdir(dataset_dir):
         os.makedirs(dataset_dir, exist_ok=True)
 
@@ -238,8 +238,8 @@ def main():
             env.engine.toggleDebug()
 
         env.agent.expert_takeover = True
-        log_episode = 1
-        for episode in range(log_episode, 2):
+        log_episode = 0
+        for episode in range(log_episode, 400):
             observations = []
             frames = []
             next_pos_actions = []
@@ -279,7 +279,7 @@ def main():
                         print(f"success, save {log_episode} episode data...")
                         data_dict = parse_data(observations, frames, next_pos_actions, now_positions, headings,
                                                history_infos)
-                        # save_episode_data(data_dict, dataset_dir, log_episode)
+                        save_episode_data(data_dict, dataset_dir, log_episode)
                         log_episode += 1
 
                     env.config["traffic_density"] = np.random.uniform(0.0, 0.3)

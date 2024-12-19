@@ -10,6 +10,9 @@ e = IPython.embed
 
 class PreferenceData:
     def __init__(self):
+        self.episode_id = None
+        self.start_ts = None
+        
         self.num_queries = 9  # same as chunksize-1
         self.len = 0
 
@@ -23,7 +26,9 @@ class PreferenceData:
         self.ego_lane_diff_angle = np.zeros((self.num_queries + 1, 1))
         self.ego_control = np.zeros((self.num_queries + 1, 2))
 
-    def parse(self, root, start_time, episode_len):
+    def parse(self, root, episode_id, start_time, episode_len):
+        self.episode_id = episode_id
+        self.start_ts = start_time
         self.len = min(episode_len - start_time, self.num_queries + 1)
         ego_states = root['/observations/ego_state'][start_time:start_time +
                                                      self.num_queries + 1]  # (num_queries+1, 6)
@@ -69,6 +74,8 @@ class PreferenceData:
     def to_dict(self):
         return {
             'len': self.len,
+            # 'episode_id': self.episode_id,
+            'start_ts': self.start_ts,
             'has_nearest': self.has_nearest,
             'ego_pos': self.ego_pos,
             'nearest_other_pos': self.nearest_other_pos,
@@ -136,7 +143,7 @@ class EpisodicDataset(torch.utils.data.Dataset):
             position_now = root['/position_now'][start_ts]
             
             preference_data = PreferenceData()
-            preference_data.parse(root, start_ts, episode_len)
+            preference_data.parse(root, episode_id, start_ts, episode_len)
             steer_throttle = preference_data.ego_control[1:2].astype(np.float32)
             action_aug = {'steer_throttle': steer_throttle,
                           'traj_action': traj_action}
@@ -182,7 +189,7 @@ class EpisodicDataset(torch.utils.data.Dataset):
             position_now = root['/position_now'][start_ts]
             
             preference_data = PreferenceData()
-            preference_data.parse(root, start_ts, episode_len)
+            preference_data.parse(root, episode_id, start_ts, episode_len)
             steer_throttle = preference_data.ego_control[1:2].astype(np.float32)
             action_aug = {'steer_throttle': steer_throttle,
                           'traj_action': traj_action}
