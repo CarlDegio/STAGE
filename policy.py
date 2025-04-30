@@ -17,6 +17,7 @@ class ACTPolicy(nn.Module):
         self.optimizer = optimizer
         self.kl_weight = args_override['kl_weight']
         self.style_weight = 10.0
+        self.style_pattern = args_override['style_pattern']
         try:
             self.persistent_dict = np.load(
                 "result_dict.npy", allow_pickle=True).item()
@@ -50,7 +51,10 @@ class ACTPolicy(nn.Module):
             loss_dict['kl'] = total_kld[0]
             # loss_dict['style'] = prompt_style_preference(
             #     style_value, prefer_dict, self.persistent_dict)
-            loss_dict['style'] = rule_style_preference(style_value=style_value, prefer_dict=prefer_dict)
+            if self.style_pattern == 'stage' or self.style_pattern == 'bc' or self.style_pattern == 'bc+vae' or self.style_pattern == 'bc+preference':
+                loss_dict['style'] = rule_style_preference(style_value=style_value, prefer_dict=prefer_dict)
+            elif self.style_pattern == 'classifier':
+                loss_dict['style'] = discrete_style_loss(style_value=style_value, prefer_dict=prefer_dict)
             loss_dict['loss'] = loss_dict['l1'] + loss_dict['kl'] * \
                 self.kl_weight + loss_dict['style'] * self.style_weight
             return loss_dict, style_value
@@ -123,8 +127,8 @@ def rule_style_preference(style_value, prefer_dict):
         if prefer_dict['has_nearest'][i] == True:
             if prefer_dict['nearest_distance'][i][0] < 20:
                 distance_score = 1 / prefer_dict['nearest_distance'][i].mean()
-                lane_diff_score = torch.abs(prefer_dict['ego_lane_diff_angle'][i]).mean() / (360 / 180 * np.pi)
-                # lane_diff_score = 0
+                # lane_diff_score = torch.abs(prefer_dict['ego_lane_diff_angle'][i]).mean() / (360 / 180 * np.pi)
+                lane_diff_score = 0
             else:
                 distance_score = 0
                 lane_diff_score = 0.0
@@ -143,6 +147,47 @@ def rule_style_preference(style_value, prefer_dict):
     loss = torch.stack(loss).mean()
     return loss
 
+
+# style value是分类logits，用分类法处理风格
+def discrete_style_loss(style_value, prefer_dict):
+    prefer_score = []
+    for i in range(style_value.size(0)):
+        speed_score = prefer_dict['ego_vel_kmh'][i].mean() / 30
+        throttle_score = prefer_dict['ego_control'][i].mean(axis=0)[1] / 0.5
+        if prefer_dict['has_nearest'][i] == True:
+            if prefer_dict['nearest_distance'][i][0] < 20:
+                distance_score = 1 / prefer_dict['nearest_distance'][i].mean()
+                lane_diff_score = torch.abs(prefer_dict['ego_lane_diff_angle'][i]).mean() / (360 / 180 * np.pi)
+                # lane_diff_score = 0
+            else:
+                distance_score = 0
+                lane_diff_score = 0.0
+        else:
+            distance_score = 0
+            lane_diff_score = 0.0
+
+        score = speed_score + throttle_score + distance_score + lane_diff_score
+        prefer_score.append(score)
+
+    prefer_score_np = np.array(prefer_score)
+    
+    board1 = 1.1
+    board2 = 1.8
+
+    # 根据阈值构造类别标签：<board1→0, [board1,board2)→1, >=board2→2
+    labels = []
+    for s in prefer_score_np:
+        if s < board1:
+            labels.append(0)
+        elif s < board2:
+            labels.append(1)
+        else:
+            labels.append(2)
+    labels = torch.tensor(labels, device=style_value.device, dtype=torch.long)
+
+    # 交叉熵损失：style_value_embed 视为对 3 类的 logits
+    loss = F.cross_entropy(style_value, labels)
+    return loss
 
 # def prompt_style_preference(style_value, prefer_dict, persistent_dict):
 #     messages_with_id = []

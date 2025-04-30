@@ -42,23 +42,34 @@ def calc_data_freq(value_array):
 def run_data():
     policy_class = 'ACT'
     policy_config = {'lr': 5e-05, 'num_queries': 10, 'kl_weight': 100.0, 'hidden_dim': 512, 'dim_feedforward': 3200,
-                     'lr_backbone': 1e-05, 'backbone': 'resnet18', 'enc_layers': 4, 'dec_layers': 1, 'nheads': 8, 'camera_names': ['top_down_view']}
-    ckpt_dir = './ckpt_kl10_prefer10_new4rules'
+                     'lr_backbone': 1e-05, 'backbone': 'resnet18', 'enc_layers': 4, 'dec_layers': 1, 'nheads': 8, 'camera_names': ['top_down_view'], 'style_pattern': 'stage'}
+    stage_ckpt_dir = './ckpt_kl10_prefer10_new4rules'
+    classifer_ckpt_dir = './ckpt_kl10_classifer_style'
 
-    stats_path = os.path.join(ckpt_dir, f'dataset_stats.pkl')
+    stats_path = os.path.join(stage_ckpt_dir, f'dataset_stats.pkl')
     with open(stats_path, 'rb') as f:
         stats = pickle.load(f)
 
-    file_list=['5011_d0_2_stage', '5011_d0_2_human', '5011_d0_0_stage', '5011_d0_0_human', '5011_d0_3_stage', '5011_d0_3_human', '5011_d0_4_stage', '5011_d0_4_human', 'ppo_5011_density0']
+    file_list=['5011_d0_2_stage', '5011_d0_2_human', '5011_d0_0_stage', '5011_d0_0_human', '5011_d0_3_stage', '5011_d0_3_human', '5011_d0_4_stage', '5011_d0_4_human']
+    # file_list=['5023_d0.1_0_discrete_style']
     dataset = EpisodicDataset(file_list, 'temp_traj', ['top_down_view'], stats)
     policy = make_policy(policy_class, policy_config)
     policy.load_state_dict(torch.load(os.path.join(
-        ckpt_dir, f'policy_last.ckpt')))
-    print(f'!Loaded: {os.path.join(ckpt_dir, "policy_last.ckpt")}')
+        stage_ckpt_dir, f'policy_last.ckpt')))
+    print(f'!Loaded: {os.path.join(stage_ckpt_dir, "policy_last.ckpt")}')
     policy.cuda()
     policy.eval()
+    
+    policy_config['style_pattern'] = 'classifier'
+    policy_class_style = make_policy(policy_class, policy_config)
+    policy_class_style.load_state_dict(torch.load(os.path.join(
+        classifer_ckpt_dir, f'policy_last.ckpt')))
+    print(f'!Loaded: {os.path.join(classifer_ckpt_dir, "policy_last.ckpt")}')
+    policy_class_style.cuda()
+    policy_class_style.eval()
+    
     style_value_list = []
-    for traj_index in range(0, 9):
+    for traj_index in range(0, 8):
         traj_length = dataset.get_raw_traj_length(traj_index)
         print(f'traj length = {traj_length}')
 
@@ -126,9 +137,18 @@ def run_data():
         # np.save(f'./temp_traj/style_value_{file_list[traj_index]}.npy', style_value)
         style_value_list.append(style_value/10)  # for style_value norm
         print(style_value)
+        
+        if traj_index % 2 == 0:
+            with torch.inference_mode():
+                _, style_value_classifer = forward_pass(
+                    (image_data, vec_data, action_data, is_pad, preference_data), policy_class_style)
+                style_value_classifer = torch.nn.Softmax(dim=1)(style_value_classifer)
+                style_value_classifer = torch.argmax(style_value_classifer, dim=1)-1
+                style_value_classifer = style_value_classifer.cpu().numpy()
+            style_value_list.append(style_value_classifer)
 
     # 创建两个子图
-    plt.figure(0, figsize=(10, 14))
+    plt.figure(0, figsize=(9, 14))
     
     # 设置全局字体大小
     plt.rcParams.update({
@@ -141,92 +161,51 @@ def run_data():
     })
     
     # 创建共享x轴的子图，2:1的高度比
-    gs = plt.GridSpec(5, 1, height_ratios=[1, 1, 1, 1, 1], hspace=0.05)
+    gs = plt.GridSpec(4, 1, height_ratios=[1, 1, 1, 1], hspace=0.05)
     
-
-    # 第一个子图：STAGE和HUMAN对比
     
-    for i in range(0, len(file_list)-1, 2):
-        ax1 = plt.subplot(gs[i//2])
-        min_len = min(len(style_value_list[i]), len(style_value_list[i+1]))
+    for i in range(0, len(style_value_list), 3):
+        ax1 = plt.subplot(gs[i//3])
+        min_len = min([len(style_value_list[i]), len(style_value_list[i+1]), len(style_value_list[i+2])])
         stage_data = style_value_list[i][:min_len]
-        human_data = style_value_list[i+1][:min_len]
-        correlation_matrix = np.corrcoef(stage_data.squeeze(), human_data.squeeze())
-        r_square = correlation_matrix[0,1]**2
-        print(f'R2 = {r_square}')
+        stage_data_classifer = style_value_list[i+1][:min_len]
+        human_data = style_value_list[i+2][:min_len]
         
+        correlation_matrix = np.corrcoef(stage_data.squeeze(), human_data.squeeze())
+        r_square_stage = correlation_matrix[0,1]**2
+        print(f'R2_stage = {r_square_stage}')
+        
+        correlation_matrix = np.corrcoef(stage_data_classifer.squeeze(), human_data.squeeze())
+        r_square_classifer = correlation_matrix[0,1]**2
+        print(f'R2_classifier = {r_square_classifer}')
+        
+        ax1.plot([0, 28], [-1, -1], 'k--', label='Style Value Boarder')
+        ax1.plot([0, 28], [1, 1], 'k--')
         time_axis = np.arange(len(style_value_list[i])) * 0.1
         ax1.plot(time_axis, style_value_list[i], label='STAGE (ours)', color='blue')
         time_axis = np.arange(len(style_value_list[i+1])) * 0.1
-        ax1.plot(time_axis, style_value_list[i+1], '--', label='HUMAN', color='green')
-        ax1.plot([0, 28], [-1, -1], 'k--', label='Style Value Boarder')
-        ax1.plot([0, 28], [1, 1], 'k--')
-        ax1.text(23, 0.85, f'R² = {r_square:.3f}', fontsize=18,
+        ax1.plot(time_axis, style_value_list[i+1], '--', label='CVAE+Discrete Style', color='#ff7f0e')
+        time_axis = np.arange(len(style_value_list[i+2])) * 0.1
+        ax1.plot(time_axis, style_value_list[i+2], '--', label='HUMAN', color='green')
+        ax1.text(23, 0.85, f'R² = {r_square_stage:.3f}', fontsize=18,
                 verticalalignment='top', color='blue')
-        # ax1.legend()
+        ax1.text(23, 0.55, f'R² = {r_square_classifer:.3f}', fontsize=18,
+                verticalalignment='top', color='#ff7f0e')
+        
         # ax1.set_ylabel('STAGE & HUMAN\nStyle Value Comparison')
         if i == 0:
-            ax1.set_title('STAGE & HUMAN & PPO Style Value Comparison')
-        ax1.set_xticklabels([])  # 隐藏x轴刻度标签
-    
-    # 第二个子图：PPO
-    ax2 = plt.subplot(gs[4])
-    ax2.plot(np.arange(len(style_value_list[-1])) * 0.1, style_value_list[-1], 
-            label='PPO', color='red')
-    ax2.plot([0, 28], [-1, -1], 'k--', label='Style Value Boarder')
-    ax2.plot([0, 28], [1, 1], 'k--')
-    ax2.set_xlabel('Time (s)')
-    # Move legend to bottom of entire figure
-    handles, labels = ax1.get_legend_handles_labels()
-    print(handles, labels)
-    handles, labels = ax2.get_legend_handles_labels()
-    print(handles, labels)
-    
-    # Combine handles and labels from both axes
-    all_handles = ax1.get_legend_handles_labels()[0][:2] + ax2.get_legend_handles_labels()[0]
-    all_labels = ax1.get_legend_handles_labels()[1][:2] + ax2.get_legend_handles_labels()[1]
-    print(all_handles, all_labels)
-    
-    # Add legend at the bottom of the figure
-    ax2.legend(all_handles, all_labels, loc='upper center', bbox_to_anchor=(0.5, -0.4), ncol=4, frameon=True, fancybox=True)
-    
-    # # Adjust layout to make room for legend
-    # plt.subplots_adjust(bottom=0.15)
-    
+            ax1.set_title('Style Value Alignment Evaluation')
+        
+        
+        if i==9:
+            ax1.set_xlabel('Time (s)')
+            ax1.legend(loc='upper center', bbox_to_anchor=(0.5, -0.4), ncol=2, frameon=True, fancybox=True)
+        else:
+            ax1.set_xticklabels([])  # 隐藏x轴刻度标签
 
-    plt.figure(1, figsize=(10, 12))
-
-    positive_freqs, positive_magnitude = calc_data_freq(style_value_list[8])
-    plt.subplot(3, 1, 1)
-    plt.plot(positive_freqs, positive_magnitude)
-    plt.title('PPO Data Frequency Spectrum')
-    plt.xlabel('Frequency (Hz)')
-    plt.ylabel('Magnitude')
-    plt.ylim([-0.05,10])
-    plt.grid(True)
-
-    # 第二个子图：STAGE
-    positive_freqs, positive_magnitude = calc_data_freq(style_value_list[0])
-    plt.subplot(3, 1, 2)
-    plt.plot(positive_freqs, positive_magnitude)
-    plt.title('STAGE Data Frequency Spectrum')
-    plt.xlabel('Frequency (Hz)')
-    plt.ylabel('Magnitude')
-    plt.ylim([-0.05,10])
-    plt.grid(True)
-
-    # 第三个子图：HUMAN
-    positive_freqs, positive_magnitude = calc_data_freq(style_value_list[1])
-    plt.subplot(3, 1, 3)
-    plt.plot(positive_freqs, positive_magnitude)
-    plt.title('HUMAN Data Frequency Spectrum')
-    plt.xlabel('Frequency (Hz)')
-    plt.ylabel('Magnitude')
-    plt.ylim([-0.05,10])
-    plt.grid(True)
-
-    plt.tight_layout()
-
+    plt.subplots_adjust(left=0.18, bottom=0.2, top=0.95)
+    # plt.tight_layout()
+    # plt.savefig('./style_value_alignment_evaluation.png', dpi=300, bbox_inches='tight')
     plt.show()
 
 

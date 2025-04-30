@@ -43,7 +43,7 @@ def stack_vec_dict(vec_dict):
 class DETRVAE(nn.Module):
     """ This is the DETR module that performs object detection """
 
-    def __init__(self, backbones, transformer, encoder, state_dim, num_queries, camera_names):
+    def __init__(self, backbones, transformer, encoder, state_dim, num_queries, camera_names, style_pattern='stage'):
         """ Initializes the model.
         Parameters:
             backbones: torch module of the backbone to be used. See backbone.py
@@ -80,7 +80,13 @@ class DETRVAE(nn.Module):
         self.cls_embed = nn.Embedding(1, hidden_dim) # extra cls token embedding
         self.encoder_action_proj = nn.Linear(2, hidden_dim) # project action to embedding
         self.encoder_joint_proj = nn.Linear(input_state_dim, hidden_dim)  # project qpos to embedding
-        self.latent_proj = nn.Linear(hidden_dim, self.latent_dim*2 + 1) # project hidden state to latent std, var
+        self.style_pattern = style_pattern
+        if style_pattern == 'stage' or style_pattern == 'bc' or style_pattern == 'bc+vae' or style_pattern == 'bc+preference':
+            self.latent_proj = nn.Linear(hidden_dim, self.latent_dim*2 + 1) # project hidden state to latent std, var
+        elif style_pattern == 'classifier':
+            self.latent_proj = nn.Linear(hidden_dim, self.latent_dim*2 + 3) # project hidden state to latent std, var
+        else:
+            raise NotImplementedError
         self.register_buffer('pos_table', get_sinusoid_encoding_table(1+1+1+num_queries, hidden_dim)) # [CLS], qpos, a_seq
 
         # decoder extra parameters
@@ -120,26 +126,66 @@ class DETRVAE(nn.Module):
             encoder_output = encoder_output[0] # take cls output only
             latent_info = self.latent_proj(encoder_output)
             mu = latent_info[:, :self.latent_dim]
-            logvar = latent_info[:, self.latent_dim: -1]
+            if self.style_pattern == 'stage' or self.style_pattern == 'bc' or self.style_pattern == 'bc+vae' or self.style_pattern == 'bc+preference':
+                logvar = latent_info[:, self.latent_dim: -1]
+            elif self.style_pattern == 'classifier':
+                logvar = latent_info[:, self.latent_dim: -3]
+            else:
+                raise NotImplementedError
             latent_sample = reparametrize(mu, logvar)
-            # latent_sample = torch.zeros_like(latent_sample, device=latent_sample.device)
-            style_value = latent_info[:, -1:]
-            # style_value = torch.zeros_like(style_value, device=style_value.device)
-            latent_sample = torch.cat([latent_sample, style_value], axis=1)
-            # temporal remove cvae and style
-            latent_input = self.latent_out_proj(latent_sample)
-            # latent_input = torch.zeros_like(latent_input, device=latent_input.device)
+            
+            if self.style_pattern == 'stage':
+                style_value = latent_info[:, -1:]
+                latent_sample = torch.cat([latent_sample, style_value], axis=1)
+                latent_input = self.latent_out_proj(latent_sample)
+            elif self.style_pattern == 'bc':
+                style_value = latent_info[:, -1:]
+                latent_sample = torch.cat([latent_sample, style_value], axis=1)
+                latent_sample = torch.zeros_like(latent_sample, device=latent_sample.device)
+                
+                latent_input = self.latent_out_proj(latent_sample)
+                latent_input = torch.zeros_like(latent_input, device=latent_input.device)
+            elif self.style_pattern == 'bc+vae':
+                style_value = latent_info[:, -1:]
+                style_value = torch.zeros_like(style_value, device=style_value.device)
+                latent_sample = torch.cat([latent_sample, style_value], axis=1)
+                latent_input = self.latent_out_proj(latent_sample)
+            elif self.style_pattern == 'bc+preference':
+                style_value = latent_info[:, -1:]
+                latent_sample = torch.zeros_like(latent_sample, device=latent_sample.device)
+                latent_sample = torch.cat([latent_sample, style_value], axis=1)
+                latent_input = self.latent_out_proj(latent_sample)
+            elif self.style_pattern == 'classifier':
+                style_value = latent_info[:, -3:]
+                style_class_prob = torch.softmax(style_value, dim=1)
+                style_class_indices = torch.argmax(style_class_prob, dim=1,keepdim=True)
+                latent_sample = torch.cat([latent_sample, style_class_indices], axis=1)
+                latent_input = self.latent_out_proj(latent_sample)
+            else:
+                raise NotImplementedError
+            
         else:
             mu = logvar = None
             latent_sample = torch.zeros([bs, self.latent_dim], dtype=torch.float32).to(vec.device)
-            # latent_sample = torch.zeros_like(latent_sample, device=latent_sample.device)
             style_value = style_control
-            # style_value = torch.zeros_like(style_value, device=style_value.device)
-            latent_sample = torch.cat([latent_sample, style_value], axis=1)
-            latent_input = self.latent_out_proj(latent_sample)
-            # latent_input = torch.zeros_like(latent_input, device=latent_input.device)
-        # temporal remove cvae
-        # latent_input = torch.zeros_like(latent_input, device = latent_input.device)
+            if self.style_pattern == 'stage' or self.style_pattern == 'classifier':
+                latent_sample = torch.cat([latent_sample, style_value], axis=1)
+                latent_input = self.latent_out_proj(latent_sample)
+            elif self.style_pattern == 'bc':
+                latent_sample = torch.cat([latent_sample, style_value], axis=1)
+                latent_input = self.latent_out_proj(latent_sample)
+                latent_input = torch.zeros_like(latent_input, device=latent_input.device)
+            elif self.style_pattern == 'bc+vae':
+                style_value = torch.zeros_like(style_value, device=style_value.device)
+                latent_sample = torch.cat([latent_sample, style_value], axis=1)
+                latent_input = self.latent_out_proj(latent_sample)
+            elif self.style_pattern == 'bc+preference':
+                latent_sample = torch.zeros_like(latent_sample, device=latent_sample.device)
+                latent_sample = torch.cat([latent_sample, style_value], axis=1)
+                latent_input = self.latent_out_proj(latent_sample)
+            else:
+                raise NotImplementedError
+                
 
         if self.backbones is not None:
             # Image observation features and position embeddings
@@ -279,6 +325,7 @@ def build(args):
         state_dim=state_dim,
         num_queries=args.num_queries,
         camera_names=args.camera_names,
+        style_pattern=args.style_pattern
     )
 
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)

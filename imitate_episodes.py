@@ -67,6 +67,7 @@ def main(args):
                          'dec_layers': dec_layers,
                          'nheads': nheads,
                          'camera_names': camera_names,
+                         'style_pattern': 'stage' # 'stage', 'bc', 'bc+vae', 'bc+preference', 'classifier'
                          }
     elif policy_class == 'CNNMLP':
         policy_config = {'lr': args['lr'], 'lr_backbone': lr_backbone, 'backbone': backbone, 'num_queries': 1,
@@ -94,8 +95,8 @@ def main(args):
         ckpt_names = [
                       f'policy_best.ckpt', 
                     #   f'policy_epoch_500_seed_0.ckpt',
-                      f'policy_epoch_600_seed_0.ckpt',
-                      f'policy_epoch_900_seed_0.ckpt',
+                    #   f'policy_epoch_600_seed_0.ckpt',
+                    #   f'policy_epoch_900_seed_0.ckpt',
                     #   f'policy_epoch_900_seed_0.ckpt'
                       
                       ]
@@ -304,16 +305,22 @@ def eval_bc(config, ckpt_name, save_episode=True):
                         pass
                     else:
                         read_sv = gui.read_style()
+                        # if read_sv>3:
+                        #     read_sv = 2
+                        # elif read_sv<-3:
+                        #     read_sv = 0
+                        # else:
+                        #     read_sv = 1
                         # if t<style_value_array.shape[0]:
                         #     read_sv = style_value_array[t].item()
                         # else:
                         #     read_sv = style_value_array[-1].item()
                         style_value1, steer_throttle1, local_traj1 = get_action(
                             policy, vec_data, curr_image, stats, style_control=read_sv)
-                        style_value2, steer_throttle2, local_traj2 = get_action(
-                            policy, vec_data, curr_image, stats, style_control=read_sv-2)
-                        style_value3, steer_throttle3, local_traj3 = get_action(
-                            policy, vec_data, curr_image, stats, style_control=read_sv+2)
+                        # style_value2, steer_throttle2, local_traj2 = get_action(
+                        #     policy, vec_data, curr_image, stats, style_control=1)
+                        # style_value3, steer_throttle3, local_traj3 = get_action(
+                        #     policy, vec_data, curr_image, stats, style_control=2)
                 else:
                     raise NotImplementedError
 
@@ -323,24 +330,24 @@ def eval_bc(config, ckpt_name, save_episode=True):
                     local_traj1, env.agent.position, env.agent.heading_theta)
                 traj.draw_in_sim_local(drawer)
 
-                traj.set_local_waypoint(
-                    local_traj2, env.agent.position, env.agent.heading_theta)
-                traj.draw_in_sim_local(drawer, rgba=np.array([1, 0, 0, 1]))
+                # traj.set_local_waypoint(
+                #     local_traj2, env.agent.position, env.agent.heading_theta)
+                # traj.draw_in_sim_local(drawer, rgba=np.array([1, 0, 0, 1]))
 
-                traj.set_local_waypoint(
-                    local_traj3, env.agent.position, env.agent.heading_theta)
-                traj.draw_in_sim_local(drawer, rgba=np.array([0, 1, 0, 1]))
+                # traj.set_local_waypoint(
+                #     local_traj3, env.agent.position, env.agent.heading_theta)
+                # traj.draw_in_sim_local(drawer, rgba=np.array([0, 1, 0, 1]))
 
                 global_waypoints1 = traj.local_waypoint_to_global(local_traj1, env.agent.position, env.agent.heading_theta)[1:]
-                global_waypoints2 = traj.local_waypoint_to_global(local_traj2, env.agent.position, env.agent.heading_theta)[1:]
-                global_waypoints3 = traj.local_waypoint_to_global(local_traj3, env.agent.position, env.agent.heading_theta)[1:]
+                # global_waypoints2 = traj.local_waypoint_to_global(local_traj2, env.agent.position, env.agent.heading_theta)[1:]
+                # global_waypoints3 = traj.local_waypoint_to_global(local_traj3, env.agent.position, env.agent.heading_theta)[1:]
                 agent_pix_point = env.top_down_renderer._frame_canvas.pos2pix(env.agent.position[0],env.agent.position[1])
                 traj_film_pix_point1 = transform_traj_pos2pix(env, global_waypoints1)
-                traj_film_pix_point2 = transform_traj_pos2pix(env, global_waypoints2)
-                traj_film_pix_point3 = transform_traj_pos2pix(env, global_waypoints3)
+                # traj_film_pix_point2 = transform_traj_pos2pix(env, global_waypoints2)
+                # traj_film_pix_point3 = transform_traj_pos2pix(env, global_waypoints3)
                 screen_pix_position1 = calc_top_down_position(traj_film_pix_point1, agent_pix_point, env.agent.heading_theta)
-                screen_pix_position2 = calc_top_down_position(traj_film_pix_point2, agent_pix_point, env.agent.heading_theta)
-                screen_pix_position3 = calc_top_down_position(traj_film_pix_point3, agent_pix_point, env.agent.heading_theta)
+                # screen_pix_position2 = calc_top_down_position(traj_film_pix_point2, agent_pix_point, env.agent.heading_theta)
+                # screen_pix_position3 = calc_top_down_position(traj_film_pix_point3, agent_pix_point, env.agent.heading_theta)
                 
                 cv_image=cv2.resize(cv_image,(448,448))
                 # 创建透明的overlay (BGRA格式)
@@ -348,8 +355,14 @@ def eval_bc(config, ckpt_name, save_episode=True):
                 overlay2 = np.zeros((448,448,4), dtype=np.uint8)
                 overlay3 = np.zeros((448,448,4), dtype=np.uint8)
                 
-                for point in screen_pix_position3.astype(int):
+                for point in screen_pix_position1.astype(int):
                     cv2.circle(cv_image, tuple(2*point), radius=2, color=(0,0,255), thickness=-1)
+                    
+                # for point in screen_pix_position2.astype(int):
+                #     cv2.circle(cv_image, tuple(2*point), radius=2, color=(255,0,0), thickness=-1)
+                    
+                # for point in screen_pix_position1.astype(int):
+                #     cv2.circle(cv_image, tuple(2*point), radius=2, color=(0,255,0), thickness=-1)
                 
                 cv2.imshow("Top-Down with Traj Point", cv_image)
                 cv2.waitKey(1)
@@ -362,6 +375,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
                 if tm or tc:
                     rewards.append(reward)
                     if info['arrive_dest'] and save_flag:
+                        # style value evaluation用
                         print(f"success, save rollout_id {rollout_id} episode data...")
                         # data_dict = parse_data(observations, frames, next_pos_actions, now_positions, headings,
                         #                        history_infos) # 会修改值，测试平均里程时勿跑
@@ -382,7 +396,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
     print(f'Episode distance mean: {avg_distance}')
     # gui.close()
     env.close()
-    draw_speed_throttle_distribution(speed_kmh_list, steer_throttle_list, ckpt_name)
+    # draw_speed_throttle_distribution(speed_kmh_list, steer_throttle_list, ckpt_name)
     return avg_return, avg_distance
 
 def draw_speed_throttle_distribution(speed_kmh_list, steer_throttle_list, ckpt_name):
@@ -404,8 +418,8 @@ def draw_speed_throttle_distribution(speed_kmh_list, steer_throttle_list, ckpt_n
     plt.ylabel('Count')
     
     plt.tight_layout()
-    np.save(f'ablation_data/kl10_prefer10_{ckpt_name}_speed.npy', speed_kmh_array)
-    np.save(f'ablation_data/kl10_prefer10_{ckpt_name}_throttle.npy', throttle_values)
+    np.save(f'ablation_data/cvae_{ckpt_name}_speed.npy', speed_kmh_array)
+    np.save(f'ablation_data/cvae_{ckpt_name}_throttle.npy', throttle_values)
     plt.show()
     
     
